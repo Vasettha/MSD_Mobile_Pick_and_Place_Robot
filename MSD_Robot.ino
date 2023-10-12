@@ -36,16 +36,36 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
 }
 
 //----------------------------------------------------------
-//Pin Numbering
-#define LEFT1 14  
-#define LEFT2 12
-#define RIGHT1 17
-#define RIGHT2 16
-//pwm attached channel
-#define LEFT1_C 0 
-#define LEFT2_C 1 
-#define RIGHT1_C 2 
-#define RIGHT2_C 3 
+//Pins
+//Buttons (Interrupt)
+#define BUTTON1 11
+#define BUTTON2 12
+// I2C for LCD
+#define SDA 22
+#define SCL 21
+//Encoder (Interrupt & digital inputs)
+#define A_1 0
+#define A_2 1 
+#define B_1 2 
+#define B_2 3 
+//Servo control (PWM Output)
+#define SERVO_0 0 //Base
+#define SERVO_1 1 //Component 1
+#define SERVO_2 2 //Component 2
+#define SERVO_3 3 //Component 3
+#define SERVO_4 3 //Gripper Servo
+// Motor control (BTS7960) (PWM Output)
+#define MOTOR_A 2
+#define MOTOR_B 3
+
+//---------------------PWM CHANNEL--------------------------
+#define MOTORA 0 
+#define MOTORB 1
+#define SERVO0 2 //Base
+#define SERVO1 3 //Component 1
+#define SERVO2 4 //Component 2
+#define SERVO3 5 //Component 3
+#define SERVO4 6 //Gripper Servo
 
 //----------------------------------------------------------
 
@@ -83,10 +103,8 @@ void setup() {
 
   //Connecting PWM channels
   //(channel,freq,res)
-  ledcSetup(LEFT1_C,1000,8);
-  ledcSetup(LEFT2_C,1000,8);
-  ledcSetup(RIGHT1_C,1000,8);
-  ledcSetup(RIGHT2_C,1000,8);
+  ledcSetup(MOTORA,1000,8);
+  ledcSetup(MOTORB,1000,8);
   //(pin, channel)
   ledcAttachPin(LEFT1,LEFT1_C); 
   ledcAttachPin(LEFT2,LEFT2_C);
