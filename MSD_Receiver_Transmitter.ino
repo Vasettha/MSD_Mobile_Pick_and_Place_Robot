@@ -37,24 +37,16 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
 }
 
 //----------------------------------------------------------
-//Pin Numbering
-#define LEFT1 14  
-#define LEFT2 12
-#define RIGHT1 17
-#define RIGHT2 16
-//pwm attached channel
-#define LEFT1_C 0 
-#define LEFT2_C 1 
-#define RIGHT1_C 2 
-#define RIGHT2_C 3 
+// Global Variables and MACROS
+  float Kp, Ki, Kd;
+
+
 
 //----------------------------------------------------------
-
-
 void setup() {
   //---------------------    COMMUNICATION   -----------------------
   Serial.begin(115200);
-  //Set WiFi mode to Station
+  //Set WiFi mode to Stationa
   WiFi.mode(WIFI_STA);
   //Initialize esp_now
     if (esp_now_init() != ESP_OK) {
@@ -74,39 +66,25 @@ void setup() {
     Serial.println("Failed to add peer");
     return;
   }
-
-  // ----------------------------------------------------------------
-  //    PINMODES
-  pinMode(LEFT1,OUTPUT);
-  pinMode(LEFT2,OUTPUT);
-  pinMode(RIGHT1,OUTPUT);
-  pinMode(RIGHT2,OUTPUT);
-
-  //Connecting PWM channels
-  //(channel,freq,res)
-  ledcSetup(LEFT1_C,1000,8);
-  ledcSetup(LEFT2_C,1000,8);
-  ledcSetup(RIGHT1_C,1000,8);
-  ledcSetup(RIGHT2_C,1000,8);
-  //(pin, channel)
-  ledcAttachPin(LEFT1,LEFT1_C); 
-  ledcAttachPin(LEFT2,LEFT2_C);
-  ledcAttachPin(RIGHT1,RIGHT1_C);
-  ledcAttachPin(RIGHT2,RIGHT2_C);
   //--------------------------------------------------------------------
  }
  //--------------------------------------------------------------------
 
-void send_param()
+void send_param(float Kp, float Ki, float Kd)
 {
   // Set value to send
-    PID_param.Kp= 0.0;
-    PID_param.Ki= 0.0;
-    PID_param.Kd= 0.0;
+    PID_param.Kp= Kp;
+    PID_param.Ki= Ki;
+    PID_param.Kd= Kd;
   // Send message via ESP-NOW
   esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &PID_param, sizeof(PID_param));
 }
 //-----------------------------------------------------------------------
 void loop(){
- //unused
+  if (Serial.available() >= sizeof(float) * 3) {
+    Serial.readBytes((char*)&Kp, sizeof(Kp));
+    Serial.readBytes((char*)&Ki, sizeof(Ki));
+    Serial.readBytes((char*)&Kd, sizeof(Kd));
+    send_param(Kp, Ki, Kd);
+  }
  }
