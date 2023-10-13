@@ -3,8 +3,8 @@
 
 //--------------------------------------------------------
 float Position_array[2000];
-// REPLACE WITH YOUR RECEIVER MAC Address
-uint8_t broadcastAddress[] = {0xC8, 0xF0, 0x9E, 0x4F, 0xDC, 0xEC};
+//Robot's MacAddress 
+uint8_t robotMacAddress[] = {0xB0, 0xA7, 0x32, 0x2A, 0x99, 0xC0};
 esp_now_peer_info_t peerInfo;
 //Array
 // this will be sent from the robot everytime the PID function is ran
@@ -32,8 +32,7 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
 void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   memcpy(&Array, incomingData, sizeof(Array));
   //Action on data received
-  Serial.print(Array.position);
-  Serial.print(',');
+  Serial.println(Array.position);
 }
 
 //----------------------------------------------------------
@@ -41,12 +40,11 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   float Kp, Ki, Kd;
 
 
-
 //----------------------------------------------------------
 void setup() {
   //---------------------    COMMUNICATION   -----------------------
   Serial.begin(115200);
-  //Set WiFi mode to Stationa
+  //Set WiFi mode to Station
   WiFi.mode(WIFI_STA);
   //Initialize esp_now
     if (esp_now_init() != ESP_OK) {
@@ -58,7 +56,7 @@ void setup() {
   esp_now_register_send_cb(OnDataSent);//get status on transmitted packet
 
   // Register peer
-  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+  memcpy(peerInfo.peer_addr, robotMacAddress, 6);
   peerInfo.channel = 0;  
   peerInfo.encrypt = false;
   // Add peer        
@@ -77,7 +75,7 @@ void send_param(float Kp, float Ki, float Kd)
     PID_param.Ki= Ki;
     PID_param.Kd= Kd;
   // Send message via ESP-NOW
-  esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &PID_param, sizeof(PID_param));
+  esp_err_t result = esp_now_send(robotMacAddress, (uint8_t *) &PID_param, sizeof(PID_param));
 }
 //-----------------------------------------------------------------------
 void loop(){
