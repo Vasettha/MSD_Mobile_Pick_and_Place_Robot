@@ -4,10 +4,12 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <PID_v1.h>
+#include <Math.h>
 
 //-----------PID---------------------------------------
 double Setpoint, Input, Output;
-double Kp = 5.0, Ki = 2.0, Kd = 1.1;
+double Kp = 2.0, Ki = 0.0, Kd = 0.0;
+//tested 3,0.1,4.2
 PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 
 //-----------Inverse Kinematics---------------------------------------
@@ -17,10 +19,15 @@ double init_X = 0.0;
 double init_Y = 0.0;
 double init_Z = 0.0;
 double desired_X,desired_Y,desired_Z;
+
+//geometry
+double gripLen;
+double r;
+
 //-----------ESPNOW---------------------------------------
 
 //laptop esp32's MacAddress 
-uint8_t laptopMacAddress[] = {0xA0, 0xB7, 0x65, 0x61, 0xC8, 0x8C};
+uint8_t laptopMacAddress[] = {0xD4, 0xD4, 0xDA, 0x5B, 0x0A, 0x40};
 esp_now_peer_info_t peerInfo;
 //Array
 float position_array[2000];
@@ -60,7 +67,7 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
     desired_Y = Laptop_comm.Ki;
     desired_Z = Laptop_comm.Kd;
   }
-  buzzer();
+  // buzzer();
 }
 
 //------- PINS --------------------------------------------------
@@ -69,7 +76,7 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
 #define BUTTON2 26
 #define BUTTON3 27
 //Buzzer 
-#define BUZZ_PIN 23
+// #define BUZZ_PIN 23
 // I2C for LCD & Servos
 #define SDA 21
 #define SCL 22
@@ -77,9 +84,9 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
 #define ENC_A 18
 #define ENC_B 19 
 // Motor control (BTS7960) (PWM Output)
-#define MOTOR_A 13
-#define MOTOR_B 14
-//leftover pins: ,4,5
+#define MOTOR_A 32
+#define MOTOR_B 33
+//leftover pins: 13,14,4,5
 //---------------------PWM CHANNEL--------------------------
 #define MOTORA 0 
 #define MOTORB 1
@@ -104,6 +111,14 @@ volatile int encoderValue =0;
 //distance
 float diameter =10.0;
 float perimeter = diameter*PI;
+//--------------Flags-------------------------------------
+bool PID_RUN = 0;
+bool IK_RUN = 0;
+
+//--------------Button-------------------------------------
+int prevMillis1;
+int prevMillis2;
+int prevMillis3;
 
  //-------FUNCTION DEFINITIONS---------------------------------------------------------
 
@@ -121,15 +136,29 @@ void IRAM_ATTR ENC_ISR()
 }
 void IRAM_ATTR BUTTON1_ISR()
 {
-  encoderValue =0;
+  if (millis() - prevMillis1 > 250)//debounce delay
+  {
+    encoderValue =0;
+    prevMillis1 = millis();
+  }
+
 }
 void IRAM_ATTR BUTTON2_ISR()
 {
-  // BUTTON2
+  if (millis() - prevMillis2 > 250)//debounce delay
+  {
+    Serial.println("PID_RUN = 1");
+    PID_RUN = 1;
+    prevMillis2 = millis();
+  }
 }
 void IRAM_ATTR BUTTON3_ISR()
 {
-  // BUTTON3
+  if (millis() - prevMillis3 > 250)//debounce delay
+  {
+    IK_RUN =1;
+    prevMillis3 = millis();
+  }
 }
 void send_position(float distance)
 {
@@ -165,7 +194,7 @@ void motor_control(int direction, int speed)
   1 means forward,
   speed is 10 bit (0-1023)
   */
-  Serial.println("Speed: " + String(speed));
+  // Serial.println("Speed: " + String(speed));
   if (direction ==1)//forward
   {
   ledcWrite(MOTORA, speed);
@@ -195,29 +224,29 @@ void LCD_disp(float distance)
   lcd.print(String(distance));
 }
 
-void buzzer()
-{
-int interval = 200;//every 200ms
-int prev_millis = millis();
+// void buzzer()
+// {
+// int interval = 200;//every 200ms
+// int prev_millis = millis();
 
-digitalWrite(BUZZ_PIN,LOW);
-while(millis() < prev_millis + interval){
-  digitalWrite(BUZZ_PIN,LOW);
-  }  
-  prev_millis = millis();
-while(millis() < prev_millis + interval){
-  digitalWrite(BUZZ_PIN,HIGH);
-  }
-  prev_millis = millis();
-while(millis() < prev_millis + interval){
-  digitalWrite(BUZZ_PIN,LOW);
-  }
-  prev_millis = millis();
-while(millis() < prev_millis + interval){
-  digitalWrite(BUZZ_PIN,HIGH);
-  }
-  prev_millis = millis();
-}
+// digitalWrite(BUZZ_PIN,LOW);
+// while(millis() < prev_millis + interval){
+//   digitalWrite(BUZZ_PIN,LOW);
+//   }  
+//   prev_millis = millis();
+// while(millis() < prev_millis + interval){
+//   digitalWrite(BUZZ_PIN,HIGH);
+//   }
+//   prev_millis = millis();
+// while(millis() < prev_millis + interval){
+//   digitalWrite(BUZZ_PIN,LOW);
+//   }
+//   prev_millis = millis();
+// while(millis() < prev_millis + interval){
+//   digitalWrite(BUZZ_PIN,HIGH);
+//   }
+//   prev_millis = millis();
+// }
 void PID_execute(double target)
 {
   int startTime = millis();
@@ -226,7 +255,7 @@ void PID_execute(double target)
   int prevMill =0;
   int index =0;
   myPID.SetTunings(Kp, Ki, Kd);
-  while (millis() - startTime < 20000)//run PID for 20s
+  while (millis() - startTime < 15000)//run PID for 20s
   {
   //for real robot
   // Input = distance();
@@ -255,6 +284,7 @@ void PID_execute(double target)
     break;
   }
   }
+  motor_control(0,0);
   LCD_disp(Input);
   send_array(position_array, sizeof(position_array) / sizeof(position_array[0]));
 }
@@ -274,12 +304,27 @@ void IK_execute()
     increment_Y[i] = init_Y - (step_Y*(i+1));
     increment_Z[i] = init_Z - (step_Z*(i+1));
   }
-  //IK
-  //take in X,Y,Z and output servo control 0,1,2,3
   double Servo_0[num_step];
   double Servo_1[num_step];
   double Servo_2[num_step];
   double Servo_3[num_step];
+  //IK
+  //take in X,Y,Z and output servo control 0,1,2,3
+
+  for (int step = 0; step < num_step; step++) {
+    double teta = atan(increment_Y[step]/increment_X[step]);
+    double len = sqrt(increment_Y[step] * increment_Y[step] + increment_X[step] * increment_X[step]);
+
+    double phi = atan((increment_Z[step]+gripLen)/len);
+    double h = sqrt(increment_Z[step] * increment_Z[step] + len * len);
+
+    double alpha = acos(h/(2*r));
+
+    Servo_0[step] = teta/2;
+    Servo_1[step] = phi + alpha;
+    Servo_2[step] = 180 -2*alpha;
+    Servo_3[step] = 90 + alpha - phi;
+  }
 
   //Take servo control array and use it to 
   for (int i;i < num_step;i++)
@@ -333,7 +378,7 @@ void setup() {
   //    PINMODES
   pinMode(BUTTON1, INPUT_PULLUP);
   pinMode(BUTTON2, INPUT_PULLUP);
-  pinMode(BUZZ_PIN,OUTPUT);
+  // pinMode(BUZZ_PIN,OUTPUT);
   pinMode(ENC_A, INPUT_PULLUP);
   pinMode(ENC_B, INPUT_PULLUP);
   pinMode(MOTOR_A,OUTPUT);
@@ -346,8 +391,8 @@ void setup() {
   //(pin, channel)
   ledcAttachPin(MOTOR_A,MOTORA); 
   ledcAttachPin(MOTOR_B,MOTORB);
-  //start with buzzing off
-  digitalWrite(BUZZ_PIN,HIGH);
+  // //start with buzzing off
+  // digitalWrite(BUZZ_PIN,HIGH);
   //start with motor off
   ledcWrite(MOTORA, 0);
   ledcWrite(MOTORB, 0);
@@ -359,17 +404,31 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(BUTTON3), BUTTON3_ISR, FALLING);
   //-------PID---------------------------------------------------------
   myPID.SetMode(AUTOMATIC);  // turn the PID on
-  myPID.SetOutputLimits(-1023, 1023);//make the output 10 bit
+  myPID.SetOutputLimits(-1024, 1024);//make the output 10 bit
+  // myPID.SetOutputLimits(-700, 700);
 
  }
-
+void choreograph()
+{
+  //choreography
+}
   //--------------------------------------------------------------------
  void loop(){
-  delay(1000);
-  Serial.println("PID start");
-  PID_execute(100.0);
-  Serial.println("PID done");
-
-  delay(100000);
-
+  if (PID_RUN){
+    delay(2000);
+    PID_execute(800.0);
+    delay(2000);
+    PID_execute(0.0);
+    delay(2000);
+    PID_RUN = 0;
+  }
+  else if(IK_RUN)
+  {
+    IK_execute();
+    IK_RUN=0;
+  }
+  else
+  {
+    LCD_disp(distance());
+  }
  }
