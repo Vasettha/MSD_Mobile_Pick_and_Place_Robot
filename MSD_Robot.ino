@@ -4,25 +4,20 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <PID_v1.h>
-#include <Math.h>
 
 //-----------PID---------------------------------------
 double Setpoint, Input, Output;
-double Kp = 5.0, Ki = 0.1, Kd = 0.0;
+double Kp = 1.0, Ki = 0.1, Kd = 2.0;
 //tested 3,0.1,4.2
 PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 
-//-----------Inverse Kinematics---------------------------------------
-//replace with the proper initial condition
+//-----------Simplified Robot Arm ---------------------------------------
 int num_step = 100;
-double init_X = 0.0;
-double init_Y = 12.0;
-double init_Z = 1.5;
-double desired_X, desired_Y, desired_Z;
-
-//geometry
-double gripLen = 10.5;
-double r = 12.0;
+double prev_servo0 = 0.0;
+double prev_servo1 = 0.0;
+double prev_servo2 = 0.0;
+double prev_servo3 = 0.0;
+double beam_length = 25.0;
 
 //-----------ESPNOW---------------------------------------
 
@@ -60,11 +55,12 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
     Kp = Laptop_comm.Kp;
     Ki = Laptop_comm.Ki;
     Kd = Laptop_comm.Kd;
-  } else if (Laptop_comm.F > 1.5) {
-    desired_X = Laptop_comm.Kp;
-    desired_Y = Laptop_comm.Ki;
-    desired_Z = Laptop_comm.Kd;
   }
+  // else if (Laptop_comm.F > 1.5) {
+  //   desired_X = Laptop_comm.Kp;
+  //   desired_Y = Laptop_comm.Ki;
+  //   desired_Z = Laptop_comm.Kd;
+  // }
   // buzzer();
 }
 
@@ -73,8 +69,6 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
 #define BUTTON1 25
 #define BUTTON2 26
 #define BUTTON3 27
-//Buzzer
-// #define BUZZ_PIN 23
 // I2C for LCD & Servos
 #define SDA 21
 #define SCL 22
@@ -89,8 +83,8 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
 #define MOTORA 0
 #define MOTORB 1
 //---------------------PCA9685------------------------------
-#define MIN_PULSE_WIDTH 650
-#define MAX_PULSE_WIDTH 2350
+#define MIN_PULSE_WIDTH 620
+#define MAX_PULSE_WIDTH 2200
 #define FREQUENCY 50
 //Pins on PCA9685 board
 #define SERVO_0 0  //Base
@@ -112,7 +106,6 @@ float perimeter = diameter * PI;
 //--------------Flags-------------------------------------
 bool PID_RUN = 0;
 bool IK_RUN = 0;
-
 //--------------Button-------------------------------------
 int prevMillis1;
 int prevMillis2;
@@ -148,6 +141,7 @@ void IRAM_ATTR BUTTON2_ISR() {
 void IRAM_ATTR BUTTON3_ISR() {
   if (millis() - prevMillis3 > 250)  //debounce delay
   {
+    Serial.println("IK_RUN = 1");
     IK_RUN = 1;
     prevMillis3 = millis();
   }
@@ -169,7 +163,6 @@ void servo_control(int angle, int motorOut)  //angle 0-180
   // Convert to pulse width
   int pulse_wide = map(angle, 0, 180, MIN_PULSE_WIDTH, MAX_PULSE_WIDTH);
   int pulse_width = int(float(pulse_wide) / 1000000 * FREQUENCY * 4096);
-
   //Control Motor
   servos.setPWM(motorOut, 0, pulse_width);
 }
@@ -209,29 +202,6 @@ void LCD_disp(float distance) {
   lcd.print(String(distance));
 }
 
-// void buzzer()
-// {
-// int interval = 200;//every 200ms
-// int prev_millis = millis();
-
-// digitalWrite(BUZZ_PIN,LOW);
-// while(millis() < prev_millis + interval){
-//   digitalWrite(BUZZ_PIN,LOW);
-//   }
-//   prev_millis = millis();
-// while(millis() < prev_millis + interval){
-//   digitalWrite(BUZZ_PIN,HIGH);
-//   }
-//   prev_millis = millis();
-// while(millis() < prev_millis + interval){
-//   digitalWrite(BUZZ_PIN,LOW);
-//   }
-//   prev_millis = millis();
-// while(millis() < prev_millis + interval){
-//   digitalWrite(BUZZ_PIN,HIGH);
-//   }
-//   prev_millis = millis();
-// }
 void PID_execute(double target) {
   int startTime = millis();
   Setpoint = target;
@@ -268,80 +238,62 @@ void PID_execute(double target) {
   send_array(position_array, sizeof(position_array) / sizeof(position_array[0]));
 }
 
-void IK_execute() {
-  //Prepare the Coordinate steps
-  double increment_X[num_step];
-  double increment_Y[num_step];
-  double increment_Z[num_step];
-  double step_X = (init_X - desired_X) / num_step;
-  double step_Y = (init_Y - desired_Y) / num_step;
-  double step_Z = (init_Z - desired_Z) / num_step;
-  for (int i; i < num_step; i++) {
-    increment_X[i] = init_X - (step_X * (i + 1));
-    increment_Y[i] = init_Y - (step_Y * (i + 1));
-    increment_Z[i] = init_Z - (step_Z * (i + 1));
-  }
+double servo3_angle(double servo1) {
+  return (180 - servo1);
+}
+void move_robot_arm(double servo0, double servo1) {
+  //initialize empty array
+  double increment_servo0[num_step];
+  double increment_servo1[num_step];
+  double increment_servo2[num_step];
+  double increment_servo3[num_step];
   double Servo_0[num_step];
   double Servo_1[num_step];
   double Servo_2[num_step];
   double Servo_3[num_step];
-  //IK
-  //take in X,Y,Z and output servo control 0,1,2,3
-
-  for (int step = 0; step < num_step; step++) {
-    // double teta = atan(increment_Y[step] / increment_X[step]);
-    // double len = sqrt(increment_Y[step] * increment_Y[step] + increment_X[step] * increment_X[step]);
-    // double phi = atan((increment_Z[step] + gripLen) / len);
-    // double h = sqrt(increment_Z[step] * increment_Z[step] + len * len);
-    // double alpha = acos(h / (2 * r));
-
-    double teta = atan(increment_Y[step] / increment_X[step]) * 180.0 / M_PI;
-    double len = sqrt((increment_Y[step] * increment_Y[step]) + (increment_X[step] * increment_X[step]));
-    double phi = atan((increment_Z[step]+gripLen)/len)* 180.0 / M_PI;
-    double h = sqrt(((increment_Z[step]+gripLen) * (increment_Z[step]+gripLen)) + (len * len));
-    double alpha = acos(h / (2 * r))* 180.0 / M_PI;
-
-    Servo_0[step] = teta;
-    Servo_1[step] = phi + alpha;
-    Servo_2[step] = 180 - 2 * alpha;
-    Servo_3[step] = 90 + alpha - phi;
+  //calculate the increment size
+  double step_0 = (prev_servo0 - servo0) / num_step;
+  double step_1 = (prev_servo1 - servo1) / num_step;
+  double step_2 = step_1;
+  double step_3 = (servo3_angle(prev_servo1) - servo3_angle(servo1)) / num_step;
+  //calculate the increments
+  for (int i = 0; i < num_step; i++) {
+    increment_servo0[i] = prev_servo0 - (step_0 * (i + 1.0));
+    increment_servo1[i] = prev_servo1 - (step_1 * (i + 1.0));
+    increment_servo2[i] = 180 - increment_servo1[i];
+    increment_servo3[i] = servo3_angle(prev_servo1) - (step_3 * (i + 1.0));
   }
-
-  //Take servo control array and use it to
+  //move the servo accordingly
   for (int i; i < num_step; i++) {
-    servo_control(Servo_0[i], 0);
-    servo_control(Servo_1[i], 1);
-    servo_control(Servo_2[i], 2);
-    servo_control(Servo_3[i], 3);
-    delay(i);
+    servo_control(increment_servo0[i], 0);
+    servo_control(increment_servo1[i], 1);
+    servo_control(increment_servo2[i], 2);
+    servo_control(increment_servo3[i], 3);
+    delay(abs(i - (num_step / 2))/3);  //speed control
+    Serial.print(increment_servo0[i]);
+    Serial.print(",");
+    Serial.print(increment_servo1[i]);
+    Serial.print(",");
+    Serial.print(increment_servo2[i]);
+    Serial.print(",");
+    Serial.println(increment_servo3[i]);
   }
-  init_X = desired_X;
-  init_Y = desired_Y;
-  init_Z = desired_Z;
+  prev_servo0 = servo0;
+  prev_servo1 = servo1;
+  prev_servo2 = 180 - servo1;
+  prev_servo3 = servo3_angle(servo1);
 }
 
-void init_ik() {
-    double teta = atan(init_Y / init_X) * 180.0 / M_PI;
-    double len = sqrt((init_Y * init_Y) + (init_X * init_X));
-    double phi = atan((init_Z+gripLen)/len)* 180.0 / M_PI;
-    double h = sqrt(((init_Z+gripLen) * (init_Z+gripLen)) + (len * len));
-    double alpha = acos(h / (2 * r))* 180.0 / M_PI;
-
-    // Serial.println(teta);
-    // Serial.println(len);
-    // Serial.println(phi);
-    // Serial.println(h);
-    // Serial.println(alpha);
-    // Serial.println(" ");
-    // Serial.println(teta);
-    // Serial.println(phi + alpha);
-    // Serial.println(180 - (2 * alpha));
-    // Serial.println(90 + alpha - phi);
-
-    servo_control(teta, 0);
-    servo_control(phi + alpha, 1);
-    servo_control(180 - (2 * alpha), 2);
-    servo_control(90 + alpha - phi, 3);
+void init_robot_arm(double servo_1_angle) {
+  servo_control(90.0, 0);
+  servo_control(servo_1_angle, 1);
+  servo_control(180 - servo_1_angle, 2);
+  servo_control(servo3_angle(servo_1_angle), 3);
+  prev_servo0 = 90.0;
+  prev_servo1 = servo_1_angle;
+  prev_servo2 = 180 - servo_1_angle;
+  prev_servo3 = servo3_angle(servo_1_angle);
+  Gripper(0);
 }
 //----------------------------------------------------------
 
@@ -373,7 +325,7 @@ void setup() {
     return;
   }
 
-  //---------------------PCA9685---------------------------------
+  //---------------------PCA9685-----------------------------------
   servos.begin();
   servos.setPWMFreq(FREQUENCY);
   // ----------- LCD -----------------------------------------------
@@ -410,15 +362,17 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(BUTTON2), BUTTON2_ISR, FALLING);
   attachInterrupt(digitalPinToInterrupt(BUTTON3), BUTTON3_ISR, FALLING);
   //-------PID---------------------------------------------------------
-  myPID.SetMode(AUTOMATIC);          // turn the PID on
-  myPID.SetOutputLimits(-700, 700);  //make the output 10 bit
+  myPID.SetMode(AUTOMATIC);            // turn the PID on
+  myPID.SetOutputLimits(-1023, 1023);  //make the output 10 bit
+  myPID.SetSampleTime(5);
   // myPID.SetOutputLimits(-700, 700);
   //---Robot Arm-------------------------------------------------------
-  init_ik();
+  // init_ik();
+  init_robot_arm(90.0);
 }
 void Gripper(bool grip) {
-  int lock = 90;
-  int unlock = 0;
+  int lock = 80;
+  int unlock = 150;
   if (grip) {
     servo_control(lock, 4);
   } else {
@@ -432,20 +386,40 @@ void choreograph() {
 }
 //--------------------------------------------------------------------
 void loop() {
+
+
   if (PID_RUN) {
-    delay(2000);
+    Serial.println("PID_RUN");
     PID_execute(800.0);
-    delay(2000);
+    delay(1000);
     PID_execute(0.0);
-    delay(2000);
+
     PID_RUN = 0;
   } else if (IK_RUN) {
-    // desired_X =
-    // desired_Y =
-    // desired_Z =
-    IK_execute();
+    Serial.println("IK_RUN");
+    move_robot_arm(90.0, 80.0);
+    Gripper(0);
+    move_robot_arm(180.0, 80.0);
+    move_robot_arm(180.0, 100.0);
+    Gripper(1);
+    move_robot_arm(180.0, 80.0);
+    move_robot_arm(90.0, 80.0);
+    move_robot_arm(90.0, 100.0);
+    Gripper(0);
+    move_robot_arm(90.0, 80.0);
+    //Run the PID to 8m
+    move_robot_arm(90.0, 100.0);
+    Gripper(1);
+    move_robot_arm(90.0, 80.0);
+    move_robot_arm(0.0,80.0);
+    move_robot_arm(0.0,100.0);
+    Gripper(0);
+    move_robot_arm(0.0,80.0);
+    move_robot_arm(90.0, 90.0);
+    //run PID back
     IK_RUN = 0;
   } else {
     LCD_disp(distance());
+    delay(100);
   }
 }
