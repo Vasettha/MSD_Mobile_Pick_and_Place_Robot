@@ -7,7 +7,7 @@
 
 //-----------PID---------------------------------------
 double Setpoint, Input, Output;
-double Kp = 1.0, Ki = 0.1, Kd = 2.0;
+double Kp = 3.0, Ki = 0.055, Kd = 5.0;
 //tested 3,0.1,4.2
 PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 
@@ -83,8 +83,8 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
 #define MOTORA 0
 #define MOTORB 1
 //---------------------PCA9685------------------------------
-#define MIN_PULSE_WIDTH 620
-#define MAX_PULSE_WIDTH 2200
+#define MIN_PULSE_WIDTH 500
+#define MAX_PULSE_WIDTH 2350
 #define FREQUENCY 50
 //Pins on PCA9685 board
 #define SERVO_0 0  //Base
@@ -124,11 +124,11 @@ void IRAM_ATTR ENC_ISR() {
   }
 }
 void IRAM_ATTR BUTTON1_ISR() {
-  if (millis() - prevMillis1 > 250)  //debounce delay
-  {
-    encoderValue = 0;
-    prevMillis1 = millis();
-  }
+  // if (millis() - prevMillis1 > 250)  //debounce delay
+  // {
+  //   encoderValue = 0;
+  //   prevMillis1 = millis();
+  // }
 }
 void IRAM_ATTR BUTTON2_ISR() {
   if (millis() - prevMillis2 > 250)  //debounce delay
@@ -210,7 +210,7 @@ void PID_execute(double target) {
   int index = 0;
   myPID.SetTunings(Kp, Ki, Kd);
   // Serial.println(String(Kp) + " " + String(Ki) + " " + String(Kd));
-  while (millis() - startTime < 15000)  //run PID for 20s
+  while (millis() - startTime <=12000)  //run PID for 20s
   {
     //for real robot
     // Input = distance();
@@ -363,16 +363,16 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(BUTTON3), BUTTON3_ISR, FALLING);
   //-------PID---------------------------------------------------------
   myPID.SetMode(AUTOMATIC);            // turn the PID on
-  myPID.SetOutputLimits(-1023, 1023);  //make the output 10 bit
+  // myPID.SetOutputLimits(-1023, 1023);  //make the output 10 bit
   myPID.SetSampleTime(5);
-  // myPID.SetOutputLimits(-700, 700);
+  myPID.SetOutputLimits(-500, 500);
   //---Robot Arm-------------------------------------------------------
   // init_ik();
   init_robot_arm(90.0);
 }
 void Gripper(bool grip) {
-  int lock = 80;
-  int unlock = 150;
+  int lock = 100;
+  int unlock = 160;
   if (grip) {
     servo_control(lock, 4);
   } else {
@@ -387,12 +387,25 @@ void choreograph() {
 //--------------------------------------------------------------------
 void loop() {
 
-
   if (PID_RUN) {
     Serial.println("PID_RUN");
-    PID_execute(800.0);
+        for(int i=0;i < 500;i++)
+    {
+      motor_control(1,i);
+      delay(5);
+    }
+
+    PID_execute(817.0);
     delay(1000);
+
+    for(int i=0;i < 500;i++)
+    {
+      motor_control(-1,i);
+      delay(7.5);
+    }
+
     PID_execute(0.0);
+    delay(1000);
 
     PID_RUN = 0;
   } else if (IK_RUN) {
@@ -400,23 +413,41 @@ void loop() {
     move_robot_arm(90.0, 80.0);
     Gripper(0);
     move_robot_arm(180.0, 80.0);
-    move_robot_arm(180.0, 100.0);
+    move_robot_arm(180.0, 105.0);
     Gripper(1);
     move_robot_arm(180.0, 80.0);
     move_robot_arm(90.0, 80.0);
-    move_robot_arm(90.0, 100.0);
+    move_robot_arm(90.0, 105.0);
     Gripper(0);
     move_robot_arm(90.0, 80.0);
     //Run the PID to 8m
-    move_robot_arm(90.0, 100.0);
+
+        for(int i=0;i < 500;i++)
+    {
+      motor_control(1,i);
+      delay(5);
+    }
+
+    PID_execute(817.0);
+
+    move_robot_arm(90.0, 105.0);
     Gripper(1);
     move_robot_arm(90.0, 80.0);
     move_robot_arm(0.0,80.0);
-    move_robot_arm(0.0,100.0);
+    move_robot_arm(0.0,105.0);
     Gripper(0);
     move_robot_arm(0.0,80.0);
     move_robot_arm(90.0, 90.0);
     //run PID back
+    
+    for(int i=0;i < 500;i++)
+    {
+      motor_control(-1,i);
+      delay(7.5);
+    }
+
+    PID_execute(0.0);
+    
     IK_RUN = 0;
   } else {
     LCD_disp(distance());
