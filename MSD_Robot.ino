@@ -3,13 +3,15 @@
 #include <Adafruit_PWMServoDriver.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
-#include <PID_v1.h>
 
 //-----------PID---------------------------------------
-double Setpoint, Input, Output;
-double Kp = 3.0, Ki = 0.055, Kd = 5.0;
-//tested 3,0.1,4.2
-PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
+int lastTime = 0;
+double lastInput = 0.0;
+double lastError = 0.0;
+double integral = 0.0;
+double derivative =0.0;
+// double Kp = 1.0, Ki = 0.0, Kd = 3.0;
+double Kp = 2.0, Ki = 0.055, Kd = 5.0;
 
 //-----------Simplified Robot Arm ---------------------------------------
 int num_step = 100;
@@ -201,41 +203,111 @@ void LCD_disp(float distance) {
   lcd.setCursor(0, 1);
   lcd.print(String(distance));
 }
+void PID_init()
+{
+    lastInput = 0.0;
+    lastError = 0.0;
+    integral = 0.0;
+    derivative =0.0;
+}
+
+int PID_compute(double Input, double Setpoint,double Kp, double Ki, double Kd,double lower_bound, double upper_bound,int timeChange)
+{
+    double Output =0.0;
+        //calculate error
+        double error;
+        int direction;
+        double dInput = 0;
+        if (Setpoint >= Input) 
+        {
+            error = Setpoint - Input;
+            dInput =(Input - lastInput);
+            direction =1;
+        } 
+        else 
+        {
+            error = Input - Setpoint;
+            dInput =(lastInput -Input);
+            direction =0;
+        }
+        //change in Input
+         
+
+        //integral
+        if (Ki != 0.0)
+        {
+            integral += (error * timeChange / 1000.0); // Convert timeChange to seconds
+        }
+        //derivative
+        if (Kd !=0.0)
+        {
+            derivative = (dInput / (timeChange / 1000.0));// Convert timeChange to seconds
+        }
+        //response
+        Output = Kp * error + Ki * integral - Kd * derivative;
+        if (direction ==0)
+        {
+            Output = Output*(-1);
+        }
+        //Cap the Output to the desired range
+        if(Output > upper_bound){Output = upper_bound;}
+        else if (Output < lower_bound){Output = lower_bound;}
+
+        // Serial.print(Input);
+        // Serial.print(',');
+        // Serial.print(Output);
+        // Serial.print(',');
+        // Serial.print(Kp * error);
+        // Serial.print(',');
+        // Serial.print(Ki * integral);
+        // Serial.print(',');
+        // Serial.print(Kd * derivative);
+        // Serial.println(',');
+        lastInput = Input;
+    return Output;
+}
 
 void PID_execute(double target) {
-  int startTime = millis();
-  Setpoint = target;
-  Serial.println("Setpoint: " + String(Setpoint));
+  PID_init();
+  int startTime =millis();
   int prevMill = 0;
   int index = 0;
-  myPID.SetTunings(Kp, Ki, Kd);
-  // Serial.println(String(Kp) + " " + String(Ki) + " " + String(Kd));
-  while (millis() - startTime <=12000)  //run PID for 20s
-  {
-    //for real robot
-    // Input = distance();
+  bool condition;
+  if (target-distance() < 0.0){condition = distance() <= target -0.2 || distance() >= target +0.2;}
+  else if(target-distance() > 0.0){condition = distance() <= target +0.2 || distance() >= target -0.2;}
 
-    //for prototype
-    Input = distance();
-    // Serial.println("Input: "+ String(Input));
-    if (millis() > prevMill + 10) {
-      position_array[index] = Input;
-      index++;
-      prevMill = millis();
-    }
-    myPID.Compute();
-    if (Output < 0) {
+  while (condition) 
+  {
+    // if (millis() > prevMill + 10) {
+    //   position_array[index] = distance();
+    //   index++;
+    //   prevMill = millis();
+    // }
+
+    int now = millis();
+    int timeChange = (now - lastTime);
+    if(timeChange>=5)
+    {
+    if (target-distance() < 0.0){condition = distance() <= target -0.2 || distance() >= target +0.2;}
+    else if(target-distance() > 0.0){condition = distance() <= target +0.2 || distance() >= target -0.2;}
+
+    double Output = PID_compute(distance(),target,Kp, Ki, Kd,-1023.0, 1023.0,timeChange);
+    // Serial.println(Output);
+    if (Output < 0.0) {
       motor_control(-1, abs(Output));
-    } else if (Output > 0) {
+    } else if (Output > 0.0) {
       motor_control(1, abs(Output));
     } else {
       motor_control(0, 0);
-      break;
+    }
+    //For next time
+      lastTime= now;
     }
   }
+  
   motor_control(0, 0);
-  LCD_disp(Input);
-  send_array(position_array, sizeof(position_array) / sizeof(position_array[0]));
+  LCD_disp(distance());
+  // send_array(position_array, sizeof(position_array) / sizeof(position_array[0]));
 }
 
 double servo3_angle(double servo1) {
@@ -362,10 +434,7 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(BUTTON2), BUTTON2_ISR, FALLING);
   attachInterrupt(digitalPinToInterrupt(BUTTON3), BUTTON3_ISR, FALLING);
   //-------PID---------------------------------------------------------
-  myPID.SetMode(AUTOMATIC);            // turn the PID on
-  // myPID.SetOutputLimits(-1023, 1023);  //make the output 10 bit
-  myPID.SetSampleTime(5);
-  myPID.SetOutputLimits(-500, 500);
+
   //---Robot Arm-------------------------------------------------------
   // init_ik();
   init_robot_arm(90.0);
@@ -386,16 +455,15 @@ void choreograph() {
 }
 //--------------------------------------------------------------------
 void loop() {
-
   if (PID_RUN) {
     Serial.println("PID_RUN");
-        for(int i=0;i < 500;i++)
+    for(int i=0;i < 500;i++)
     {
       motor_control(1,i);
       delay(5);
     }
 
-    PID_execute(817.0);
+    PID_execute(818.0);
     delay(1000);
 
     for(int i=0;i < 500;i++)
@@ -422,13 +490,13 @@ void loop() {
     move_robot_arm(90.0, 80.0);
     //Run the PID to 8m
 
-        for(int i=0;i < 500;i++)
+    for(int i=0;i < 500;i++)
     {
       motor_control(1,i);
       delay(5);
     }
 
-    PID_execute(817.0);
+    PID_execute(818.0);
 
     move_robot_arm(90.0, 105.0);
     Gripper(1);
@@ -451,6 +519,7 @@ void loop() {
     IK_RUN = 0;
   } else {
     LCD_disp(distance());
+    // Serial.println(distance());
     delay(100);
   }
 }
